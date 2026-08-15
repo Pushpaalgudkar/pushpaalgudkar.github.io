@@ -1069,9 +1069,18 @@ a, button, input, textarea, label, summary { touch-action: manipulation; }
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
   letter-spacing: 0.04em;
+  line-height: 1.5;
   color: var(--accent);
   min-height: 1.4em;
+  transition: color var(--dur) var(--ease);
 }
+/* Green when the message went, red when it did not. */
+.talk__status.is-good { color: #5ED98B; }
+.talk__status.is-bad  { color: #F08C8C; }
+
+/* While the message is on its way the button stops being pressable and
+   dims, so it is obvious something is happening. */
+.btn:disabled { opacity: 0.55; cursor: progress; pointer-events: none; }
 
 /* Fallback links row under the panel */
 .contact__links {
@@ -2272,17 +2281,17 @@ a, button, input, textarea, label, summary { touch-action: manipulation; }
   <!-- ========================================================================
        CONTACT - "Let's talk."
 
-       The form really does deliver. Two modes, set by FORM_ENDPOINT in the
-       JavaScript near the bottom of this file:
+       The form sends the message from this page. A visitor types their
+       message, presses send, and sees "Sent." right where they are - no
+       email app opens and they never leave the page. Behind the scenes the
+       page posts to FormSubmit, which emails the message to you.
 
-       1. FORM_ENDPOINT = ""  (how it ships)
-          Submitting opens the visitor's email app with a message already
-          written and addressed to you. They press send. Nothing to sign up for.
+       Every email arrives labelled with the site it came from, plus the page
+       address and the time it was sent, so you always know which portfolio
+       produced it.
 
-       2. FORM_ENDPOINT = "https://formspree.io/f/xxxxxxx"
-          Submitting posts straight to your inbox without the visitor needing
-          an email app at all. Free to set up - instructions are in the
-          comment above FORM_ENDPOINT.
+       IT NEEDS ONE CONFIRMATION CLICK BEFORE IT WORKS - see the notes above
+       FORM_ENDPOINT in the JavaScript near the bottom of this file.
        ======================================================================== -->
   <section class="section section--contact" id="contact">
     <div class="shell">
@@ -2364,7 +2373,7 @@ a, button, input, textarea, label, summary { touch-action: manipulation; }
                  and when they do the form quietly refuses to submit. -->
             <div class="visually-hidden" aria-hidden="true">
               <label for="field-company">Company (leave this empty)</label>
-              <input type="text" id="field-company" name="_gotcha" tabindex="-1" autocomplete="off">
+              <input type="text" id="field-company" name="_honey" tabindex="-1" autocomplete="off">
             </div>
 
             <button class="btn btn--primary talk__send" type="submit" id="send-btn">
@@ -2652,20 +2661,33 @@ document.addEventListener("DOMContentLoaded", function () {
 
      >>> HOW THE FORM SENDS MAIL <<<
 
-     As it ships, FORM_ENDPOINT is empty. Submitting opens the visitor's
-     email app with the message already written and addressed to you --
-     they just press send. That works everywhere with no signup.
+     The message is posted straight from this page to FormSubmit, which
+     emails it to MY_EMAIL. No email app opens and the visitor never leaves
+     the page -- they press send and the confirmation appears in place.
 
-     To have messages arrive in your inbox WITHOUT the visitor needing an
-     email app:
-       1. Go to https://formspree.io and sign up (free).
-       2. Create a new form using pushpa.algudkar@gmail.com.
-       3. Formspree gives you a URL like https://formspree.io/f/abcdwxyz
-       4. Paste it between the quotes below and save this file.
-     Web3Forms (https://web3forms.com) works the same way if you prefer it.
+     ONE-TIME SETUP -- DO THIS ONCE OR THE MESSAGES GO NOWHERE:
+       1. Open this page yourself and send a short test message.
+       2. FormSubmit will email pushpa.algudkar@gmail.com asking you to
+          confirm that you own the address.
+       3. Click the link in that email. That is it -- from then on every
+          message arrives in your inbox on its own, including that test one.
+     You only ever do this once, and only for this address.
+
+     Every email is labelled with SITE_LABEL and carries the page address it
+     came from, so if you ever put this file in more than one place you can
+     still tell which copy the message was sent from.
+
+     TWO THINGS YOU MIGHT WANT LATER:
+       - Your address sits in FORM_ENDPOINT below, so it is readable in the
+         page source. After you confirm, FormSubmit gives you a random alias
+         (something like /ajax/a1b2c3d4e5). Paste that in place of your
+         address and it stops appearing in the HTML.
+       - If you ever want the old behaviour back -- opening the visitor's own
+         email app instead -- set FORM_ENDPOINT to "" and change nothing else.
      ------------------------------------------------------------------ */
-  var FORM_ENDPOINT = "";                          // <-- paste your endpoint here
-  var MY_EMAIL      = "pushpa.algudkar@gmail.com"; // where messages go
+  var FORM_ENDPOINT = "https://formsubmit.co/ajax/pushpa.algudkar@gmail.com";
+  var MY_EMAIL      = "pushpa.algudkar@gmail.com";   // where messages go
+  var SITE_LABEL    = "Pushpa Algudkar - portfolio"; // names the site in every email
 
   var form       = $("#contact-form");
   var statusEl   = $("#form-status");
@@ -2674,6 +2696,15 @@ document.addEventListener("DOMContentLoaded", function () {
   function setError(fieldId, message) {
     var el = $("#error-" + fieldId);
     if (el) { el.textContent = message || ""; }
+  }
+
+  // The line under the send button. "tone" is "is-good", "is-bad", or left
+  // out for the plain amber it uses while working.
+  function setStatus(text, tone) {
+    statusEl.textContent = text;
+    statusEl.classList.remove("is-good");
+    statusEl.classList.remove("is-bad");
+    if (tone) { statusEl.classList.add(tone); }
   }
 
   // A deliberately simple check: something, an @, something, a dot, something
@@ -2713,33 +2744,65 @@ document.addEventListener("DOMContentLoaded", function () {
       });
 
       if (firstBad) {
-        statusEl.textContent = "";
+        setStatus("");
         if (firstBad.input) { firstBad.input.focus(); }
         return;
       }
 
-      /* ---- Mode 2: post to a form service, message lands in the inbox ---- */
+      /* ---- Sending for real: posted from this page, straight to the inbox --
+
+         Nothing here opens an email app. The page hands the message to
+         FormSubmit, FormSubmit emails it to you, and the visitor just sees
+         the status line underneath the button change.
+         ------------------------------------------------------------------ */
       if (FORM_ENDPOINT) {
-        statusEl.textContent = "Sending...";
+        setStatus("Sending...");
         sendBtn.disabled = true;
+
+        // Which page the message was sent from. Written into the email so a
+        // copy of this file living somewhere else is still recognisable.
+        var sentFrom = window.location.href.split("#")[0];
+        if (window.location.protocol === "file:") {
+          sentFrom = "opened straight from a file, not a website (" + sentFrom + ")";
+        }
+
+        // Everything in here becomes a row in the email you receive.
+        var payload = new FormData();
+        payload.append("name", name);
+        payload.append("email", email);
+        payload.append("message", message);
+        payload.append("Sent from", SITE_LABEL);
+        payload.append("Page", sentFrom);
+        payload.append("Sent at", new Date().toString());
+
+        // Fields starting with an underscore are instructions for FormSubmit
+        // itself rather than content -- it strips them out of the email.
+        payload.append("_subject", SITE_LABEL + ": new message from " + name);
+        payload.append("_template", "table");  // lay the email out as a table
+        payload.append("_captcha", "false");   // no captcha for the visitor
 
         fetch(FORM_ENDPOINT, {
           method: "POST",
-          headers: { "Accept": "application/json", "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: name,
-            email: email,
-            message: message,
-            _subject: "Portfolio message from " + name
-          })
+          headers: { "Accept": "application/json" },
+          body: payload
         })
         .then(function (response) {
           if (!response.ok) { throw new Error("Request failed"); }
-          statusEl.textContent = "Sent. Thank you -- I'll reply within a day.";
+          // Read the reply. If it is not JSON, treat it as an empty answer.
+          return response.json().catch(function () { return {}; });
+        })
+        .then(function (result) {
+          // FormSubmit replies with success "false" while your address is
+          // still unconfirmed. Only an explicit "false" counts as a failure,
+          // so a reply worded differently is never mistaken for one.
+          if (result && result.success !== undefined && String(result.success) !== "true") {
+            throw new Error(result.message || "Not sent");
+          }
+          setStatus("Sent, thank you. I'll get back to you as soon as I can.", "is-good");
           form.reset();
         })
         .catch(function () {
-          statusEl.textContent = "That didn't go through. Please email " + MY_EMAIL + " instead.";
+          setStatus("That didn't go through. You can reach me at " + MY_EMAIL + ".", "is-bad");
         })
         .then(function () {
           sendBtn.disabled = false;
@@ -2748,7 +2811,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return;
       }
 
-      /* ---- Mode 1 (default): open the visitor's email app, pre-filled ---- */
+      /* ---- Fallback, only if FORM_ENDPOINT is emptied: the email app ---- */
       var subject = "Portfolio message from " + name;
       var body    = message + "\n\n--\n" + name + "\n" + email;
 
@@ -2757,7 +2820,7 @@ document.addEventListener("DOMContentLoaded", function () {
                    "&body=" + encodeURIComponent(body);
 
       window.location.href = mailto;
-      statusEl.textContent = "Opening your email app -- press send there to reach me.";
+      setStatus("Opening your email app -- press send there to reach me.");
     });
   }
 
